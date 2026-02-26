@@ -28,8 +28,8 @@ async def get_access_token() -> str | None:
 
     url = f"{LANDSCAPE_API_BASE}login/access-key"
     body = {
-        "access_key_id": LANDSCAPE_API_KEY,
-        "secret_access_key": LANDSCAPE_API_SECRET,
+        "access_key": LANDSCAPE_API_KEY,
+        "secret_key": LANDSCAPE_API_SECRET,
     }
 
     async with httpx.AsyncClient() as client:
