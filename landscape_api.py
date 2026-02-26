@@ -67,8 +67,8 @@ async def make_api_request(
             return None
 
 
-@mcp.resource("landscape://accounts")
-async def get_accounts_resource() -> str:
+@mcp.tool()
+async def get_accounts() -> str:
     """Get all accounts accessible to the authenticated user."""
     data = await make_api_request("GetAccounts", {})
 
@@ -78,8 +78,8 @@ async def get_accounts_resource() -> str:
     return json.dumps(data, indent=2)
 
 
-@mcp.resource("landscape://accounts/{account_name}")
-async def get_account_by_name(account_name: str) -> str:
+@mcp.tool()
+async def get_account(account_name: str) -> str:
     """Get a specific account by name.
 
     Args:
@@ -93,9 +93,21 @@ async def get_account_by_name(account_name: str) -> str:
     return json.dumps(data, indent=2)
 
 
-@mcp.resource("landscape://licenses")
-async def get_all_licenses() -> str:
-    """Get all licenses across all accounts."""
+@mcp.tool()
+async def get_licenses(account_name: str | None = None) -> str:
+    """Get licenses from Landscape. If account_name is provided, returns licenses for that account only.
+
+    Args:
+        account_name: Optional account name to filter licenses by
+    """
+    if account_name:
+        data = await make_api_request("GetAccounts", {"account_name": account_name})
+        if not data or not data:
+            return f"Unable to fetch licenses for account: {account_name}"
+        account = data[0] if isinstance(data, list) else data
+        licenses = account.get("licenses", [])
+        return json.dumps(licenses, indent=2)
+
     accounts_data = await make_api_request("GetAccounts", {})
 
     if not accounts_data:
@@ -109,24 +121,6 @@ async def get_all_licenses() -> str:
             all_licenses.append({"account": account_name, **license})
 
     return json.dumps(all_licenses, indent=2)
-
-
-@mcp.resource("landscape://licenses/{account_name}")
-async def get_licenses_by_account(account_name: str) -> str:
-    """Get licenses for a specific account.
-
-    Args:
-        account_name: The name of the account
-    """
-    data = await make_api_request("GetAccounts", {"account_name": account_name})
-
-    if not data or not data:
-        return f"Unable to fetch licenses for account: {account_name}"
-
-    account = data[0] if isinstance(data, list) else data
-    licenses = account.get("licenses", [])
-
-    return json.dumps(licenses, indent=2)
 
 
 def main():
