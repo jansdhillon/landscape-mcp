@@ -53,7 +53,7 @@ async def make_api_request(
         return None
 
     url = f"{LANDSCAPE_API_BASE}{method}"
-    body = {"action": method, "params": params or {}}
+    body = {"action": method, "version": "2011-08-01", "params": params or {}}
 
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
