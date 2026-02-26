@@ -19,19 +19,19 @@ LANDSCAPE_API_BASE = os.getenv(
 )
 LANDSCAPE_API_KEY = os.getenv("LANDSCAPE_API_KEY")
 LANDSCAPE_API_SECRET = os.getenv("LANDSCAPE_API_SECRET")
-_access_token: str | None = None
-_user_email: str | None = None
+_token: str | None = None
+_email: str | None = None
 
 
-async def get_access_token() -> str | None:
-    global _access_token, _user_email
+async def _get_auth_credentials() -> tuple[str | None, str | None]:
+    global _token, _email
 
-    if _access_token:
-        return _access_token
+    if _token and _email:
+        return (_token, _email)
 
     if not LANDSCAPE_API_KEY or not LANDSCAPE_API_SECRET:
         logging.error("LANDSCAPE_API_KEY and LANDSCAPE_API_SECRET must be set")
-        return None
+        return (None, None)
 
     url = f"{LANDSCAPE_API_BASE}login/access-key"
     body = {
@@ -44,19 +44,19 @@ async def get_access_token() -> str | None:
             response = await client.post(url, json=body, timeout=30.0)
             response.raise_for_status()
             data = response.json()
-            _access_token = data.get("token")
-            _user_email = data.get("email")
-            logging.info(f"Successfully authenticated as {_user_email}")
-            return _access_token
+            _token = data.get("token")
+            _email = data.get("email")
+            logging.info(f"Successfully authenticated as {_email}")
+            return (_token, _email)
         except Exception as e:
             logging.error(f"Failed to get access token: {e}")
-            return None
+            return (None, None)
 
 
 async def make_api_request(
     method: str, params: dict[str, Any] | None = None
 ) -> dict[str, Any] | None:
-    token = await get_access_token()
+    token, _ = await _get_auth_credentials()
     if not token:
         return None
 
@@ -91,11 +91,10 @@ async def get_accounts(
     elif account_name:
         params["account_name"] = account_name
     else:
-        if not _user_email:
-            await get_access_token()
-        if not _user_email:
-            return "Unable to authenticate and get user email"
-        params["email"] = _user_email
+        _, user_email = await _get_auth_credentials()
+        if not user_email:
+            return "Unable to authenticate"
+        params["email"] = user_email
 
     data = await make_api_request("GetAccounts", params)
 
@@ -109,19 +108,17 @@ async def get_accounts(
 async def get_licenses(account_name: str | None = None) -> str:
     if account_name:
         data = await make_api_request("GetAccounts", {"account_name": account_name})
-        if not data or not data:
+        if not data:
             return f"Unable to fetch licenses for account: {account_name}"
         account = data[0] if isinstance(data, list) else data
         licenses = account.get("licenses", [])
         return json.dumps(licenses, indent=2)
 
-    if not _user_email:
-        await get_access_token()
+    _, user_email = await _get_auth_credentials()
+    if not user_email:
+        return "Unable to authenticate"
 
-    if not _user_email:
-        return "Unable to authenticate and get user email"
-
-    accounts_data = await make_api_request("GetAccounts", {"email": _user_email})
+    accounts_data = await make_api_request("GetAccounts", {"email": user_email})
 
     if not accounts_data:
         return "Unable to fetch licenses"
