@@ -25,16 +25,12 @@ If you're using VSCode, the server can be started automatically by adding an ent
 			"type": "stdio",
 			"command": "docker",
 			"args": [
-				"run",
-				"--rm",
-				"-i",
+				"run", "--rm", "-i",
+				"-e", "LANDSCAPE_API_URI=${input:landscape-api-uri}",
+				"-e", "LANDSCAPE_API_KEY=${input:landscape-api-access-key}",
+				"-e", "LANDSCAPE_API_SECRET=${input:landscape-api-secret-key}",
 				"ghcr.io/jansdhillon/landscape-mcp:latest"
-			],
-			"env": {
-				"LANDSCAPE_API_URI": "${input:landscape-api-uri}",
-				"LANDSCAPE_API_KEY": "${input:landscape-api-access-key}",
-				"LANDSCAPE_API_SECRET": "${input:landscape-api-secret-key}"
-			}
+			]
 		}
 	},
 	"inputs": [
