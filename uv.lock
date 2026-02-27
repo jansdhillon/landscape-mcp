@@ -265,18 +265,20 @@ wheels = [
 ]
 
 [[package]]
-name = "landscape-api-mcp"
+name = "landscape-mcp"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "httpx" },
     { name = "mcp", extra = ["cli"] },
+    { name = "pydantic" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.26.0" },
+    { name = "pydantic" },
 ]
 
 [[package]]

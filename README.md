@@ -1,4 +1,4 @@
-# landscape-api-mcp
+# landscape-mcp
 
 ## Running the MCP server
 
@@ -8,11 +8,11 @@ Make sure you have uv installed:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Edit `.env.example` with your real Landscape SaaS API credentials, remove the `.example` extension, and run `source .env`.
+Edit `.env.example` with your real Landscape API credentials, remove the `.example` extension, and run `source .env`.
 
-Then, clone this repo and run `uv run landscape_api.py`.
+Then, clone this repo and run `uvx landscape-mcp`.
 
-After starting the server, AI agents can use the tools to query Landscape while authenticating with the credentials provided in the environment variables. For example, you can ask it about the licenses for a given account.
+After starting the server, AI agents can use the tools to query Landscape while authenticating with the credentials provided in the environment variables. For example, you can ask it about the computers for a given account.
 
 ### VSCode
 
@@ -21,13 +21,13 @@ If you're using VSCode, the server can be started automatically by adding an ent
 ```json
 {
 	"servers": {
-		"landscape-api-mcp": {
+		"landscape-mcp": {
 			"type": "stdio",
 			"command": "uv",
 			"args": [
 				"run",
 				"--directory",
-				"/home/jan.dhillon@canonical.com/landscape-api-mcp",
+				"/home/jan.dhillon@canonical.com/landscape-mcp",
 				"landscape_api.py"
 			],
 			"env": {
