@@ -121,6 +121,7 @@ async def get_accounts(
     email: str | None = None,
     account_name: str | None = None,
 ) -> str:
+    """Get Landscape accounts. Optionally filter by email address or account name."""
     params = {}
 
     if email:
@@ -138,6 +139,7 @@ async def get_accounts(
 
 @mcp.tool()
 async def get_licenses(account_name: str | None = None) -> str:
+    """Get Landscape licenses by account name. Returns all licenses across all (accessible) accounts if no account name is provided."""
     if account_name:
         data = await legacy_api_request("GetAccounts", {"account_name": account_name})
         if not data:
@@ -164,6 +166,7 @@ async def get_licenses(account_name: str | None = None) -> str:
 
 @mcp.tool()
 async def get_computers() -> str:
+    """Get all computers registered in Landscape, including their hardware info, Ubuntu Pro status, distribution, tags, and last exchange time."""
     data = await rest_api_request("GET", "/computers")
 
     if not data:
