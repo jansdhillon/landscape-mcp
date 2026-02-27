@@ -2,7 +2,7 @@ from typing import Any
 import json
 import httpx
 from mcp.server.fastmcp import FastMCP
-from mcp.types import UserMessage, TextContent
+from mcp.types import PromptMessage, TextContent
 import os
 import logging
 import sys
@@ -177,10 +177,10 @@ async def get_computers() -> str:
 
 
 @mcp.prompt()
-def audit_account(account_name: str) -> list[UserMessage]:
+def audit_account(account_name: str) -> list[PromptMessage]:
     """Prompt to summarize the computers and license status of a Landscape account."""
     return [
-        UserMessage(
+        PromptMessage(
             role="user",
             content=TextContent(
                 type="text",
