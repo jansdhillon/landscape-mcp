@@ -23,12 +23,12 @@ If you're using VSCode, the server can be started automatically by adding an ent
 	"servers": {
 		"landscape-mcp": {
 			"type": "stdio",
-			"command": "uv",
+			"command": "docker",
 			"args": [
 				"run",
-				"--directory",
-				"/home/jan.dhillon@canonical.com/landscape-mcp",
-				"landscape_api.py"
+				"--rm",
+				"-i",
+				"ghcr.io/jansdhillon/landscape-mcp:latest"
 			],
 			"env": {
 				"LANDSCAPE_API_URI": "${input:landscape-api-uri}",
