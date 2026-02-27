@@ -2,6 +2,7 @@ from typing import Any
 import json
 import httpx
 from mcp.server.fastmcp import FastMCP
+from mcp.types import UserMessage, TextContent
 import os
 import logging
 import sys
@@ -173,6 +174,26 @@ async def get_computers() -> str:
         return "Unable to fetch computers"
 
     return json.dumps(data, indent=2)
+
+
+@mcp.prompt()
+def audit_account(account_name: str) -> list[UserMessage]:
+    """Prompt to summarize the computers and license status of a Landscape account."""
+    return [
+        UserMessage(
+            role="user",
+            content=TextContent(
+                type="text",
+                text=(
+                    f"Audit the Landscape account '{account_name}'. "
+                    "Use the available tools to: "
+                    "1) fetch the account's licenses and flag any that are expired or nearly expired, "
+                    "2) fetch all computers and summarise their Ubuntu Pro status, distribution versions, and any that haven't exchanged data in more than 7 days. "
+                    "Present a concise report."
+                ),
+            ),
+        )
+    ]
 
 
 def main():
