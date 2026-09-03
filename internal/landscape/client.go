@@ -12,7 +12,10 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
+
+	apiclient "github.com/jansdhillon/landscape-go-api-client/client"
 )
 
 const (
@@ -26,12 +29,18 @@ const (
 	envAPIURI    = "LANDSCAPE_API_URI"
 )
 
-// Client talks to a Landscape server.
+// Client talks to a Landscape server. Legacy API actions go through the
+// hand-rolled shim (the legacy API is not OpenAPI-specifiable); v2 calls go
+// through the generated landscape-go-api-client, built lazily on first use.
 type Client struct {
 	baseURL    string
 	accessKey  string
 	secretKey  string
 	httpClient *http.Client
+
+	v2Once   sync.Once
+	v2       *apiclient.ClientWithResponses
+	v2Err    error
 }
 
 // LoginResult holds the outcome of an access-key login.
@@ -139,31 +148,60 @@ func (c *Client) Legacy(ctx context.Context, action string, params map[string]st
 	return c.do(req)
 }
 
-// REST calls the REST v2 API: <method> {base}/<endpoint> with params in the
-// query string.
-func (c *Client) REST(ctx context.Context, method, endpoint string, params map[string]string) (json.RawMessage, error) {
-	login, err := c.Login(ctx)
+// v2Client lazily builds the generated v2 API client on first use, so the
+// server can start without credentials (errors surface per call instead).
+// The wrapper logs in once at construction and reuses the JWT.
+func (c *Client) v2Client(ctx context.Context) (*apiclient.ClientWithResponses, error) {
+	c.v2Once.Do(func() {
+		if err := c.missingCredentials(); err != nil {
+			c.v2Err = err
+			return
+		}
+		// The generated client prepends spec server URLs that already
+		// include the "/api" path prefix.
+		rootURL := strings.TrimSuffix(strings.TrimSuffix(c.baseURL, "/"), "/api")
+		provider := &apiclient.AccessKeyProvider{
+			AccessKey: c.accessKey,
+			SecretKey: c.secretKey,
+		}
+		client, err := apiclient.NewLandscapeAPIClient(
+			rootURL,
+			provider,
+			apiclient.WithHTTPClient(c.httpClient),
+		)
+		if err != nil {
+			c.v2Err = fmt.Errorf("failed to initialize v2 API client: %w", err)
+			return
+		}
+		c.v2 = client
+	})
+	return c.v2, c.v2Err
+}
+
+// ListComputers returns the raw body of GET /api/computers via the generated
+// v2 client. The response is passed through unmodified for output parity with
+// the previous implementation; typed handling comes when the tool grows
+// filters.
+func (c *Client) ListComputers(ctx context.Context) (json.RawMessage, error) {
+	v2, err := c.v2Client(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	u, err := url.Parse(c.baseURL + strings.TrimPrefix(endpoint, "/"))
+	res, err := v2.ListComputers(ctx, &apiclient.ListComputersParams{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to build request URL: %w", err)
+		return nil, fmt.Errorf("API request failed: %w", err)
 	}
-	q := u.Query()
-	for k, v := range params {
-		q.Set(k, v)
-	}
-	u.RawQuery = q.Encode()
+	defer res.Body.Close()
 
-	req, err := http.NewRequestWithContext(ctx, method, u.String(), nil)
+	data, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build request: %w", err)
+		return nil, fmt.Errorf("failed to read API response: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+login.Token)
-
-	return c.do(req)
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		return nil, fmt.Errorf("API request failed: %s", res.Status)
+	}
+	return json.RawMessage(data), nil
 }
 
 func (c *Client) do(req *http.Request) (json.RawMessage, error) {

@@ -96,6 +96,8 @@ go vet ./...
 go test ./...
 ```
 
-### Roadmap
+### API client
 
-The hand-rolled client in `internal/landscape/` is a shim. The destination is the generated [landscape-go-api-client](https://github.com/jansdhillon/landscape-go-api-client), which is regenerated from the [landscape-openapi-spec](https://github.com/jansdhillon/landscape-openapi-spec) as endpoints are added. The spec grows demand-driven: endpoints are added only when a consumer (this MCP, the Terraform provider) needs them.
+v2 API calls (e.g. `get_computers`) go through the generated [landscape-go-api-client](https://github.com/jansdhillon/landscape-go-api-client), which is regenerated from the [landscape-openapi-spec](https://github.com/jansdhillon/landscape-openapi-spec). Legacy API actions (`GetAccounts`) use the shim in `internal/landscape/` - the legacy API is not OpenAPI-specifiable and stays out of the spec permanently.
+
+The spec grows demand-driven: endpoints are added only when a consumer (this MCP, the Terraform provider) needs them. When Canonical publishes an official spec, point the client repo at it, regenerate, and the MCP follows.

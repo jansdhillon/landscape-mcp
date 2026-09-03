@@ -22,8 +22,6 @@ type stubClient struct {
 
 	legacyAction string
 	legacyParams map[string]string
-	restMethod   string
-	restEndpoint string
 }
 
 func (s *stubClient) Login(ctx context.Context) (*landscape.LoginResult, error) {
@@ -36,9 +34,7 @@ func (s *stubClient) Legacy(ctx context.Context, action string, params map[strin
 	return s.legacyData, s.legacyErr
 }
 
-func (s *stubClient) REST(ctx context.Context, method, endpoint string, params map[string]string) (json.RawMessage, error) {
-	s.restMethod = method
-	s.restEndpoint = endpoint
+func (s *stubClient) ListComputers(ctx context.Context) (json.RawMessage, error) {
 	return s.restData, s.restErr
 }
 
@@ -151,9 +147,6 @@ func TestGetComputers(t *testing.T) {
 	res, _, err := s.GetComputers(context.Background(), nil, GetComputersParams{})
 	if err != nil {
 		t.Fatalf("GetComputers failed: %v", err)
-	}
-	if stub.restMethod != "GET" || stub.restEndpoint != "/computers" {
-		t.Errorf("wrong REST call: %s %s", stub.restMethod, stub.restEndpoint)
 	}
 	if !strings.Contains(resultText(t, res), "web-1") {
 		t.Errorf("result missing computer: %s", resultText(t, res))

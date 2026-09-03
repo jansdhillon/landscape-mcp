@@ -16,7 +16,7 @@ import (
 type LandscapeClient interface {
 	Login(ctx context.Context) (*landscape.LoginResult, error)
 	Legacy(ctx context.Context, action string, params map[string]string) (json.RawMessage, error)
-	REST(ctx context.Context, method, endpoint string, params map[string]string) (json.RawMessage, error)
+	ListComputers(ctx context.Context) (json.RawMessage, error)
 }
 
 // Server holds the dependencies shared by the tool handlers.
@@ -137,9 +137,9 @@ func mergeAccount(name string, license map[string]any) map[string]any {
 // GetComputersParams are the inputs to the get_computers tool (none).
 type GetComputersParams struct{}
 
-// GetComputers implements the get_computers tool via REST GET /computers.
+// GetComputers implements the get_computers tool via v2 GET /api/computers.
 func (s *Server) GetComputers(ctx context.Context, req *mcp.CallToolRequest, params GetComputersParams) (*mcp.CallToolResult, any, error) {
-	data, err := s.client.REST(ctx, "GET", "/computers", nil)
+	data, err := s.client.ListComputers(ctx)
 	if err != nil {
 		return nil, nil, err
 	}

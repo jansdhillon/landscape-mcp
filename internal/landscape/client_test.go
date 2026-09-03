@@ -111,47 +111,60 @@ func TestLegacyRequestShape(t *testing.T) {
 	}
 }
 
-func TestRESTRequestShape(t *testing.T) {
+func TestListComputersRequestShape(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/login/access-key":
+		case "/api/login/access-key":
+			if r.Method != http.MethodPost {
+				t.Errorf("login must use POST, got %s", r.Method)
+			}
+			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]string{"token": "jwt-123", "email": "a@b.c"})
-		case "/computers":
+		case "/api/computers":
 			if r.Method != http.MethodGet {
 				t.Errorf("expected GET, got %s", r.Method)
 			}
 			if r.Header.Get("Authorization") != "Bearer jwt-123" {
 				t.Errorf("missing bearer token, got %q", r.Header.Get("Authorization"))
 			}
-			w.Write([]byte(`{"results": []}`))
+			w.Write([]byte(`{"count": 0, "results": []}`))
 		default:
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
 	}))
 
-	data, err := c.REST(context.Background(), http.MethodGet, "/computers", nil)
+	data, err := c.ListComputers(context.Background())
 	if err != nil {
-		t.Fatalf("REST failed: %v", err)
+		t.Fatalf("ListComputers failed: %v", err)
 	}
 	if !strings.Contains(string(data), "results") {
 		t.Errorf("unexpected response: %s", data)
 	}
 }
 
-func TestRESTUpstreamError(t *testing.T) {
+func TestListComputersUpstreamError(t *testing.T) {
 	c := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/login/access-key" {
+		if r.URL.Path == "/api/login/access-key" {
+			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]string{"token": "jwt-123"})
 			return
 		}
 		http.Error(w, "boom", http.StatusInternalServerError)
 	}))
 
-	_, err := c.REST(context.Background(), http.MethodGet, "/computers", nil)
+	_, err := c.ListComputers(context.Background())
 	if err == nil {
 		t.Fatal("expected error for upstream failure")
 	}
 	if !strings.Contains(err.Error(), "500") {
 		t.Errorf("error should include status, got: %v", err)
+	}
+}
+
+func TestListComputersMissingCredentials(t *testing.T) {
+	c := &Client{baseURL: "http://unused/", httpClient: &http.Client{}}
+	_, err := c.ListComputers(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "LANDSCAPE_API_KEY") {
+		t.Errorf("expected config error, got %v", err)
 	}
 }
