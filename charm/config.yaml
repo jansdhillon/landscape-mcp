@@ -1,0 +1,22 @@
+# Copyright 2026 Canonical Ltd
+# See LICENSE file for licensing details.
+
+options:
+  landscape-api-uri:
+    type: string
+    default: "https://landscape.canonical.com/api/"
+    description: Base URL of the Landscape API.
+  landscape-api-key:
+    type: string
+    default: ""
+    description: Landscape API access key.
+  landscape-api-secret:
+    type: string
+    default: ""
+    description: |
+      Landscape API secret key. TODO: migrate to a Juju secret-backed
+      option once the charm matures.
+  port:
+    type: int
+    default: 8080
+    description: Port the MCP server listens on inside the container.

@@ -1,0 +1,36 @@
+# OCI image ("rock") for the Landscape MCP server.
+# Build with: rockcraft pack
+name: landscape-mcp
+base: ubuntu@24.04
+version: "0.1.0"
+summary: MCP server for the Landscape API
+description: |
+  An MCP server exposing the Landscape API to AI agents. Runs with the
+  streamable HTTP transport by default in this image.
+license: GPL-3.0
+
+platforms:
+  amd64:
+  arm64:
+
+services:
+  landscape-mcp:
+    override: replace
+    summary: Landscape MCP server (streamable HTTP)
+    startup: enabled
+    command: /usr/local/bin/landscape-mcp -transport http -addr :8080
+    # LANDSCAPE_API_URI, LANDSCAPE_API_KEY, and LANDSCAPE_API_SECRET are
+    # supplied by the charm (or the environment, for plain docker runs).
+
+parts:
+  server:
+    plugin: nil
+    source: .
+    build-snaps:
+      - go/1.26/stable
+    override-build: |
+      cd "$CRAFT_PART_SRC"
+      mkdir -p "$CRAFT_PART_INSTALL/usr/local/bin"
+      go build -o "$CRAFT_PART_INSTALL/usr/local/bin/landscape-mcp" ./cmd/landscape-mcp
+    stage-packages:
+      - ca-certificates
