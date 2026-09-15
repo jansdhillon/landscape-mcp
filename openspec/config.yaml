@@ -2,6 +2,12 @@ schema: spec-driven
 githubCopilot:
   cloudAgent: true
 
+# landscape-internal-docs hosts the OpenSpec store with this project's
+# specs and change history (PR canonical/landscape-internal-docs#287).
+references:
+  - id: landscape-internal-docs
+    url: https://github.com/canonical/landscape-internal-docs
+
 # Project context (optional)
 # This is shown to AI when creating artifacts.
 # Add your tech stack, conventions, style guides, domain knowledge, etc.
