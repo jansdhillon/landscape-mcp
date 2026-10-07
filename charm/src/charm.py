@@ -143,10 +143,14 @@ class LandscapeMcpCharm(ops.CharmBase):
         if unit_address is None:
             logger.warning("No bind address for mcp-haproxy-route yet")
             return
+        hostname = str(self.config.get("external-hostname") or "") or None
+        if hostname is None:
+            logger.warning("external-hostname is unset; HAProxy will ignore the route")
 
         self.haproxy_route.provide_haproxy_route_requirements(
             service=f"landscape-mcp-{self.model.uuid}",
             ports=[self.port],
+            hostname=hostname,
             paths=[MCP_PATH],
             protocol="http",
             check_path=HEALTH_PATH,

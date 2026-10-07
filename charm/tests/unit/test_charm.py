@@ -1,6 +1,7 @@
 # Copyright 2026 Canonical Ltd
 # See LICENSE file for licensing details.
 
+import json
 import pytest
 from ops import testing
 
@@ -19,6 +20,7 @@ CONFIG = {
             "default": "https://landscape.canonical.com/api/",
         },
         "landscape-api-credentials": {"type": "secret"},
+        "external-hostname": {"type": "string", "default": ""},
         "port": {"type": "int", "default": 8080},
     }
 }
@@ -155,10 +157,14 @@ class TestHaproxyRoute:
             leader=True,
             relations={relation},
             secrets={secret},
-            config=cfg,
+            config={**cfg, "external-hostname": "landscape.local"},
         )
         out = ctx.run(ctx.on.relation_joined(relation), state)
         assert out.unit_status == testing.ActiveStatus()
+        assert (
+            json.loads(out.get_relation(relation.id).local_app_data["hostname"])
+            == "landscape.local"
+        )
 
         rel = out.get_relation(relation.id)
         app_data = rel.local_app_data

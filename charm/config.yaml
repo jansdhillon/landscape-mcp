@@ -12,6 +12,13 @@ options:
       ID of a Juju secret holding the Landscape API credentials, with the
       fields `api-key` and `api-secret`. The secret must be granted to this
       application with `juju grant-secret`.
+  external-hostname:
+    type: string
+    default: ""
+    description: |
+      Hostname HAProxy routes to this service (for example the Landscape
+      hostname). Required for the `mcp-haproxy-route` relation: HAProxy
+      ignores routes that have no hostname.
   port:
     type: int
     default: 8080
