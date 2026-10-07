@@ -21,6 +21,11 @@ logger = logging.getLogger(__name__)
 CONTAINER_NAME = "landscape-mcp"
 MCP_PATH = "/mcp"
 HEALTH_PATH = "/healthz"
+SECRET_FIELDS = ("api-key", "api-secret")
+
+
+class CredentialsError(Exception):
+    """The Landscape API credentials secret is unusable."""
 
 
 class LandscapeMcpCharm(ops.CharmBase):
@@ -34,6 +39,7 @@ class LandscapeMcpCharm(ops.CharmBase):
 
         framework.observe(self.on["landscape-mcp"].pebble_ready, self._reconcile)
         framework.observe(self.on.config_changed, self._reconcile)
+        framework.observe(self.on.secret_changed, self._reconcile)
         framework.observe(self.on["mcp-haproxy-route"].relation_joined, self._reconcile)
         framework.observe(
             self.on["mcp-haproxy-route"].relation_changed, self._reconcile
@@ -53,7 +59,32 @@ class LandscapeMcpCharm(ops.CharmBase):
         address = binding.network.bind_address
         return str(address) if address else None
 
-    def _pebble_layer(self) -> ops.pebble.LayerDict:
+    def _credentials(self) -> dict[str, str]:
+        """Read the API credentials from the configured Juju secret.
+
+        Raises:
+            CredentialsError: If the secret is unset, unreadable or incomplete.
+        """
+        secret_id = self.config.get("landscape-api-credentials")
+        if not secret_id:
+            raise CredentialsError("Missing landscape-api-credentials config")
+        try:
+            secret = self.model.get_secret(id=str(secret_id))
+            content = secret.get_content(refresh=True)
+        except ops.SecretNotFoundError:
+            raise CredentialsError(
+                "Credentials secret not found or not granted"
+            ) from None
+        except ops.ModelError as e:
+            raise CredentialsError(f"Cannot read credentials secret: {e}") from None
+        missing = [f for f in SECRET_FIELDS if not content.get(f)]
+        if missing:
+            raise CredentialsError(
+                f"Credentials secret missing fields: {', '.join(missing)}"
+            )
+        return content
+
+    def _pebble_layer(self, credentials: dict[str, str]) -> ops.pebble.LayerDict:
         return {
             "summary": "Landscape MCP server",
             "description": "Pebble layer for the Landscape MCP server",
@@ -68,10 +99,8 @@ class LandscapeMcpCharm(ops.CharmBase):
                     "startup": "enabled",
                     "environment": {
                         "LANDSCAPE_API_URI": str(self.config["landscape-api-uri"]),
-                        "LANDSCAPE_API_KEY": str(self.config["landscape-api-key"]),
-                        "LANDSCAPE_API_SECRET": str(
-                            self.config["landscape-api-secret"]
-                        ),
+                        "LANDSCAPE_API_KEY": credentials["api-key"],
+                        "LANDSCAPE_API_SECRET": credentials["api-secret"],
                     },
                 }
             },
@@ -91,11 +120,15 @@ class LandscapeMcpCharm(ops.CharmBase):
             event.defer()
             return
 
-        if not self.config["landscape-api-key"]:
-            self.unit.status = ops.BlockedStatus("Missing landscape-api-key config")
+        try:
+            credentials = self._credentials()
+        except CredentialsError as e:
+            self.unit.status = ops.BlockedStatus(str(e))
             return
 
-        container.add_layer(CONTAINER_NAME, self._pebble_layer(), combine=True)
+        container.add_layer(
+            CONTAINER_NAME, self._pebble_layer(credentials), combine=True
+        )
         container.replan()
         self._provide_haproxy_route()
         self.unit.status = ops.ActiveStatus()
