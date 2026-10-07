@@ -42,7 +42,11 @@ relation if it lives in another model):
 
 ```sh
 juju relate landscape-mcp:mcp-haproxy-route haproxy
+juju config landscape-mcp external-hostname=<landscape-host>
 ```
+
+`external-hostname` must match the hostname HAProxy serves for Landscape;
+HAProxy ignores routes without a hostname.
 
 HAProxy then routes `<landscape-host>/mcp` to this service. Clients connect
 with the streamable HTTP transport, e.g. in VSCode `mcp.json`:
