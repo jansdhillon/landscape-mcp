@@ -6,16 +6,12 @@ options:
     type: string
     default: "https://landscape.canonical.com/api/"
     description: Base URL of the Landscape API.
-  landscape-api-key:
-    type: string
-    default: ""
-    description: Landscape API access key.
-  landscape-api-secret:
-    type: string
-    default: ""
+  landscape-api-credentials:
+    type: secret
     description: |
-      Landscape API secret key. TODO: migrate to a Juju secret-backed
-      option once the charm matures.
+      ID of a Juju secret holding the Landscape API credentials, with the
+      fields `api-key` and `api-secret`. The secret must be granted to this
+      application with `juju grant-secret`.
   port:
     type: int
     default: 8080

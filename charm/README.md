@@ -19,10 +19,21 @@ cd charm && charmcraft pack
 juju add-model landscape-mcp
 juju deploy ./landscape-mcp_ubuntu@24.04-amd64.charm landscape-mcp \
   --resource landscape-mcp-image=ghcr.io/jansdhillon/landscape-mcp:latest \
-  --config landscape-api-uri=https://landscape.example.com/api/ \
-  --config landscape-api-key=<access-key> \
-  --config landscape-api-secret=<secret-key>
+  --config landscape-api-uri=https://landscape.example.com/api/
 ```
+
+The API credentials come from a Juju secret with the fields `api-key` and
+`api-secret`. Create it, grant it to the application, and point the charm at
+the secret ID:
+
+```sh
+juju add-secret landscape-api-creds api-key=<access-key> api-secret=<secret-key>
+juju grant-secret landscape-api-creds landscape-mcp
+juju config landscape-mcp landscape-api-credentials=secret:<id>
+```
+
+Until the secret is configured and granted, the unit is blocked. Rotating the
+secret (`juju update-secret`) restarts the workload with the new credentials.
 
 ## Publish behind HAProxy
 
