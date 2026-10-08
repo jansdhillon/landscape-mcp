@@ -62,6 +62,25 @@ Note the backend address advertised is the unit's bind address on the
 relation network; HAProxy must be able to route to the k8s workload
 (routable pod CIDR, NodePort, or load balancer, depending on the substrate).
 
+## Encrypt traffic to HAProxy
+
+By default HAProxy talks to the pod over plain HTTP. To use HTTPS, relate the
+charm to a certificates provider, and send the issuing CA to HAProxy so it can
+verify the backend (the HAProxy endpoint is `receive-ca-certs`):
+
+```sh
+juju relate landscape-mcp:certificates self-signed-certificates
+juju relate landscape-mcp:send-ca-cert haproxy:receive-ca-certs
+```
+
+The charm requests a certificate for the unit, the server starts serving
+HTTPS with it (`-tls-cert`/`-tls-key`), the Pebble check becomes a TCP check,
+and the haproxy route switches to the `https` protocol. The certificate
+includes the unit's bind address and in-cluster DNS names as subject
+alternative names. Removing the `certificates` relation returns the charm to
+plain HTTP. The unit shows `Waiting for TLS certificate` until the provider
+issues the certificate.
+
 ## Development
 
 ```sh

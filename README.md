@@ -42,6 +42,8 @@ Two transports are available, selected with `-transport` (env `LANDSCAPE_MCP_TRA
 ./landscape-mcp -transport http -addr :8080
 ```
 
+To serve HTTPS, pass `-tls-cert` and `-tls-key` (env `LANDSCAPE_MCP_TLS_CERT` and `LANDSCAPE_MCP_TLS_KEY`). Both must be set together; with neither, the server serves plain HTTP. The [charm](charm/) sets them when integrated with a TLS certificates provider.
+
 ### VSCode
 
 Add an entry to `mcp.json`:
