@@ -41,7 +41,7 @@ Relate to `landscape-server` and to the HAProxy charm that fronts it
 (cross-model relations if they live in another model):
 
 ```sh
-juju relate landscape-mcp:landscape-server landscape-server
+juju relate landscape-mcp:landscape-server landscape-server:mcp
 juju relate landscape-mcp:mcp-haproxy-route haproxy
 ```
 
