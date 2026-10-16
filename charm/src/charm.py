@@ -7,7 +7,8 @@
 Runs the Landscape MCP server with the streamable HTTP transport in a
 container and optionally publishes it through HAProxy via the
 haproxy-route relation, so it can sit behind the same HAProxy as the
-landscape-server charm.
+landscape-server charm. The route hostname is the external Landscape
+hostname that landscape-server publishes on the landscape-server relation.
 """
 
 import logging
@@ -32,6 +33,8 @@ CONTAINER_NAME = "landscape-mcp"
 MCP_PATH = "/mcp"
 HEALTH_PATH = "/healthz"
 SECRET_FIELDS = ("api-key", "api-secret")
+LANDSCAPE_SERVER_RELATION = "landscape-server"
+LANDSCAPE_HOSTNAME_KEY = "hostname"
 TLS_DIR = "/etc/landscape-mcp/tls"
 TLS_CERT_PATH = f"{TLS_DIR}/server.crt"
 TLS_KEY_PATH = f"{TLS_DIR}/server.key"
@@ -55,7 +58,10 @@ class LandscapeMcpCharm(ops.CharmBase):
             relationship_name="certificates",
             certificate_requests=[self._certificate_request()],
             mode=Mode.UNIT,
-            refresh_events=[self.on.config_changed],
+            refresh_events=[
+                self.on.config_changed,
+                self.on[LANDSCAPE_SERVER_RELATION].relation_changed,
+            ],
         )
         self.ca_transfer = CertificateTransferProvides(self, "send-ca-cert")
 
@@ -65,6 +71,12 @@ class LandscapeMcpCharm(ops.CharmBase):
         framework.observe(self.on["send-ca-cert"].relation_joined, self._reconcile)
         framework.observe(self.on.config_changed, self._reconcile)
         framework.observe(self.on.secret_changed, self._reconcile)
+        framework.observe(
+            self.on[LANDSCAPE_SERVER_RELATION].relation_changed, self._reconcile
+        )
+        framework.observe(
+            self.on[LANDSCAPE_SERVER_RELATION].relation_broken, self._reconcile
+        )
         framework.observe(self.on["mcp-haproxy-route"].relation_joined, self._reconcile)
         framework.observe(
             self.on["mcp-haproxy-route"].relation_changed, self._reconcile
@@ -84,6 +96,14 @@ class LandscapeMcpCharm(ops.CharmBase):
         address = binding.network.bind_address
         return str(address) if address else None
 
+    @property
+    def landscape_hostname(self) -> str | None:
+        """External Landscape hostname published by landscape-server, if any."""
+        relation = self.model.get_relation(LANDSCAPE_SERVER_RELATION)
+        if relation is None or not relation.active or relation.app is None:
+            return None
+        return relation.data[relation.app].get(LANDSCAPE_HOSTNAME_KEY) or None
+
     def _certificate_request(self) -> CertificateRequestAttributes:
         """Request a certificate valid for the names and address HAProxy may use."""
         service_dns = f"{self.app.name}.{self.model.name}.svc.cluster.local"
@@ -92,7 +112,7 @@ class LandscapeMcpCharm(ops.CharmBase):
             f"{self.unit.name.replace('/', '-')}.{self.app.name}-endpoints."
             f"{self.model.name}.svc.cluster.local",
         }
-        hostname = str(self.config.get("external-hostname") or "")
+        hostname = self.landscape_hostname
         if hostname:
             sans_dns.add(hostname)
         address = self.unit_address
@@ -239,7 +259,11 @@ class LandscapeMcpCharm(ops.CharmBase):
             # Replan does not restart a service whose layer is unchanged, but the
             # server only reads the certificate at startup.
             container.restart(CONTAINER_NAME)
-        self._provide_haproxy_route(https=assigned is not None)
+        if not self._provide_haproxy_route(https=assigned is not None):
+            self.unit.status = ops.WaitingStatus(
+                "Waiting for Landscape hostname from landscape-server relation"
+            )
+            return
         self.unit.status = ops.ActiveStatus()
 
     def _send_ca(self, certificate: ProviderCertificate | None) -> None:
@@ -251,19 +275,25 @@ class LandscapeMcpCharm(ops.CharmBase):
             return
         self.ca_transfer.add_certificates({str(certificate.ca)})
 
-    def _provide_haproxy_route(self, https: bool = False) -> None:
-        """Publish the MCP route to HAProxy when related."""
+    def _provide_haproxy_route(self, https: bool = False) -> bool:
+        """Publish the MCP route to HAProxy when related.
+
+        Returns False only when HAProxy is related but no Landscape hostname is
+        known yet: HAProxy ignores routes without a hostname, so nothing is
+        published until landscape-server provides one.
+        """
         if not self.model.get_relation("mcp-haproxy-route"):
-            return
+            return True
+        hostname = self.landscape_hostname
+        if hostname is None:
+            logger.info("No Landscape hostname yet; not publishing haproxy route")
+            return False
         if not self.unit.is_leader():
-            return
+            return True
         unit_address = self.unit_address
         if unit_address is None:
             logger.warning("No bind address for mcp-haproxy-route yet")
-            return
-        hostname = str(self.config.get("external-hostname") or "") or None
-        if hostname is None:
-            logger.warning("external-hostname is unset; HAProxy will ignore the route")
+            return True
 
         self.haproxy_route.provide_haproxy_route_requirements(
             service=f"landscape-mcp-{self.model.uuid}",
@@ -278,7 +308,10 @@ class LandscapeMcpCharm(ops.CharmBase):
             header_rewrite_expressions=[("X-Forwarded-Proto", "https")],
             unit_address=unit_address,
         )
-        logger.info("Published haproxy route for %s on port %d", MCP_PATH, self.port)
+        logger.info(
+            "Published haproxy route for %s%s on port %d", hostname, MCP_PATH, self.port
+        )
+        return True
 
 
 if __name__ == "__main__":

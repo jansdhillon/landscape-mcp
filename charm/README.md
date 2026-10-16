@@ -37,16 +37,18 @@ secret (`juju update-secret`) restarts the workload with the new credentials.
 
 ## Publish behind HAProxy
 
-Relate to the HAProxy charm that fronts `landscape-server` (cross-model
-relation if it lives in another model):
+Relate to `landscape-server` and to the HAProxy charm that fronts it
+(cross-model relations if they live in another model):
 
 ```sh
+juju relate landscape-mcp:landscape-server landscape-server
 juju relate landscape-mcp:mcp-haproxy-route haproxy
-juju config landscape-mcp external-hostname=<landscape-host>
 ```
 
-`external-hostname` must match the hostname HAProxy serves for Landscape;
-HAProxy ignores routes without a hostname.
+`landscape-server` publishes the external Landscape hostname (the `root_url`
+host) on the `landscape-server` relation, and the charm uses it as the route
+hostname, since HAProxy ignores routes without one. Until that hostname
+arrives, no route is published and the unit is waiting.
 
 HAProxy then routes `<landscape-host>/mcp` to this service. Clients connect
 with the streamable HTTP transport, e.g. in VSCode `mcp.json`:
