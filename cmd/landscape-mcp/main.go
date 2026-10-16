@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -25,6 +26,17 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
+// validateTLS rejects a certificate without a key and vice versa.
+func validateTLS(cert, key string) error {
+	switch {
+	case cert != "" && key == "":
+		return errors.New("-tls-cert requires -tls-key (or LANDSCAPE_MCP_TLS_KEY)")
+	case key != "" && cert == "":
+		return errors.New("-tls-key requires -tls-cert (or LANDSCAPE_MCP_TLS_CERT)")
+	}
+	return nil
+}
+
 func main() {
 	// Logs go to stderr only; on stdio, stdout carries the protocol.
 	log.SetPrefix("landscape-mcp: ")
@@ -33,7 +45,15 @@ func main() {
 		"transport to serve: stdio or http (env LANDSCAPE_MCP_TRANSPORT)")
 	addr := flag.String("addr", envOr("LANDSCAPE_MCP_HTTP_ADDR", ":8080"),
 		"listen address for the http transport (env LANDSCAPE_MCP_HTTP_ADDR)")
+	tlsCert := flag.String("tls-cert", envOr("LANDSCAPE_MCP_TLS_CERT", ""),
+		"TLS certificate file; with -tls-key, serves HTTPS on the http transport (env LANDSCAPE_MCP_TLS_CERT)")
+	tlsKey := flag.String("tls-key", envOr("LANDSCAPE_MCP_TLS_KEY", ""),
+		"TLS private key file (env LANDSCAPE_MCP_TLS_KEY)")
 	flag.Parse()
+
+	if err := validateTLS(*tlsCert, *tlsKey); err != nil {
+		log.Fatal(err)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -68,8 +88,15 @@ func main() {
 			httpServer.Shutdown(context.Background())
 		}()
 
-		log.Printf("starting MCP server over streamable HTTP at %s/mcp", *addr)
-		if err := httpServer.ListenAndServe(); err != http.ErrServerClosed {
+		var err error
+		if *tlsCert != "" {
+			log.Printf("starting MCP server over streamable HTTPS at %s/mcp", *addr)
+			err = httpServer.ListenAndServeTLS(*tlsCert, *tlsKey)
+		} else {
+			log.Printf("starting MCP server over streamable HTTP at %s/mcp", *addr)
+			err = httpServer.ListenAndServe()
+		}
+		if err != http.ErrServerClosed {
 			log.Fatalf("server failed: %v", err)
 		}
 	default:
