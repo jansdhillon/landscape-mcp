@@ -1,6 +1,7 @@
 # Copyright 2026 Canonical Ltd
 # See LICENSE file for licensing details.
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -12,6 +13,7 @@ CHARM_META = {
     "name": "landscape-mcp",
     "containers": {"landscape-mcp": {}},
     "requires": {
+        "landscape-server": {"interface": "landscape-mcp", "limit": 1},
         "mcp-haproxy-route": {"interface": "haproxy-route", "limit": 1},
         "certificates": {"interface": "tls-certificates", "limit": 1},
     },
@@ -33,6 +35,13 @@ CONFIG = {
 @pytest.fixture
 def ctx():
     return testing.Context(LandscapeMcpCharm, meta=CHARM_META, config=CONFIG, unit_id=0)
+
+
+def landscape_server(hostname="landscape.local"):
+    data = {"hostname": hostname} if hostname else {}
+    return testing.Relation(
+        "landscape-server", remote_app_name="landscape-server", remote_app_data=data
+    )
 
 
 def creds_secret(**content):
@@ -159,16 +168,65 @@ class TestHaproxyRoute:
         state = testing.State(
             containers={container()},
             leader=True,
-            relations={relation},
+            relations={relation, landscape_server()},
             secrets={secret},
             config=cfg,
         )
         out = ctx.run(ctx.on.relation_joined(relation), state)
         assert out.unit_status == testing.ActiveStatus()
+        assert (
+            json.loads(out.get_relation(relation.id).local_app_data["hostname"])
+            == "landscape.local"
+        )
 
         rel = out.get_relation(relation.id)
         app_data = rel.local_app_data
         assert "services" in app_data or "service" in app_data
+
+    def test_hostname_change_republishes_route(self, ctx):
+        secret, cfg = with_creds()
+        route = testing.Relation("mcp-haproxy-route")
+        server = landscape_server("landscape.example.com")
+        state = testing.State(
+            containers={container()},
+            leader=True,
+            relations={route, server},
+            secrets={secret},
+            config=cfg,
+        )
+        out = ctx.run(ctx.on.relation_changed(server), state)
+        assert out.unit_status == testing.ActiveStatus()
+        data = out.get_relation(route.id).local_app_data
+        assert json.loads(data["hostname"]) == "landscape.example.com"
+
+    def test_waits_for_hostname_without_landscape_server(self, ctx):
+        secret, cfg = with_creds()
+        route = testing.Relation("mcp-haproxy-route")
+        state = testing.State(
+            containers={container()},
+            leader=True,
+            relations={route},
+            secrets={secret},
+            config=cfg,
+        )
+        out = ctx.run(ctx.on.relation_joined(route), state)
+        assert isinstance(out.unit_status, testing.WaitingStatus)
+        assert out.get_relation(route.id).local_app_data == {}
+
+    def test_waits_until_landscape_server_publishes_hostname(self, ctx):
+        secret, cfg = with_creds()
+        route = testing.Relation("mcp-haproxy-route")
+        server = landscape_server(hostname=None)
+        state = testing.State(
+            containers={container()},
+            leader=True,
+            relations={route, server},
+            secrets={secret},
+            config=cfg,
+        )
+        out = ctx.run(ctx.on.relation_changed(server), state)
+        assert isinstance(out.unit_status, testing.WaitingStatus)
+        assert out.get_relation(route.id).local_app_data == {}
 
     def test_no_route_data_without_relation(self, ctx):
         secret, cfg = with_creds()
@@ -187,7 +245,7 @@ class TestHaproxyRoute:
         state = testing.State(
             containers={container()},
             leader=False,
-            relations={relation},
+            relations={relation, landscape_server()},
             secrets={secret},
             config=cfg,
         )
@@ -285,7 +343,7 @@ class TestTls:
     def test_route_uses_https_when_tls_active(self, ctx, monkeypatch):
         issued(monkeypatch)
         route = testing.Relation("mcp-haproxy-route")
-        state, _ = self._state(relations={route})
+        state, _ = self._state(relations={route, landscape_server()})
         out = ctx.run(ctx.on.relation_joined(route), state)
         data = out.get_relation(route.id).local_app_data
         assert data["protocol"] == '"https"'
@@ -296,10 +354,11 @@ class TestTls:
         state = testing.State(
             containers={container()},
             leader=True,
-            relations={route},
+            relations={route, landscape_server()},
             secrets={secret},
             config=cfg,
         )
         out = ctx.run(ctx.on.relation_joined(route), state)
         data = out.get_relation(route.id).local_app_data
+        assert "hostname" in data
         assert data.get("protocol", '"http"') == '"http"'
