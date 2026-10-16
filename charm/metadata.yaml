@@ -29,3 +29,18 @@ requires:
     interface: haproxy-route
     limit: 1
     optional: true
+  certificates:
+    interface: tls-certificates
+    limit: 1
+    optional: true
+    description: |
+      Certificates provider (for example self-signed-certificates). When
+      related, the server serves HTTPS with the issued certificate.
+
+provides:
+  send-ca-cert:
+    interface: certificate_transfer
+    optional: true
+    description: |
+      Sends the CA that issued the server certificate, for HAProxy's
+      receive-ca-certs endpoint, so HAProxy can verify the backend.

@@ -8,6 +8,10 @@ platforms:
 charm-libs:
   - lib: haproxy.haproxy_route
     version: "1.13"
+  - lib: tls_certificates_interface.tls_certificates
+    version: "4"
+  - lib: certificate_transfer_interface.certificate_transfer
+    version: "1"
 
 parts:
   # "uv-deps" is a magic part name charmcraft uses to satisfy the uv plugin's

@@ -1,6 +1,8 @@
 # Copyright 2026 Canonical Ltd
 # See LICENSE file for licensing details.
 
+from types import SimpleNamespace
+
 import pytest
 from ops import testing
 
@@ -9,7 +11,11 @@ from charm import LandscapeMcpCharm
 CHARM_META = {
     "name": "landscape-mcp",
     "containers": {"landscape-mcp": {}},
-    "requires": {"mcp-haproxy-route": {"interface": "haproxy-route", "limit": 1}},
+    "requires": {
+        "mcp-haproxy-route": {"interface": "haproxy-route", "limit": 1},
+        "certificates": {"interface": "tls-certificates", "limit": 1},
+    },
+    "provides": {"send-ca-cert": {"interface": "certificate_transfer"}},
 }
 
 CONFIG = {
@@ -189,3 +195,111 @@ class TestHaproxyRoute:
         assert out.unit_status == testing.ActiveStatus()
         rel = out.get_relation(relation.id)
         assert rel.local_app_data == {}
+
+
+def issued(monkeypatch, assigned=True):
+    """Fake the certificate the provider issued."""
+    result = (
+        (SimpleNamespace(certificate="CERT", ca="CA"), "KEY")
+        if assigned
+        else (None, None)
+    )
+    monkeypatch.setattr(
+        "charm.TLSCertificatesRequiresV4.get_assigned_certificate",
+        lambda self, certificate_request: result,
+    )
+
+
+class TestTls:
+    def _state(self, **kwargs):
+        secret, cfg = with_creds()
+        relation = testing.Relation("certificates")
+        state = testing.State(
+            containers={container()},
+            leader=kwargs.pop("leader", True),
+            relations={relation, *kwargs.pop("relations", set())},
+            secrets={secret},
+            config=cfg,
+            **kwargs,
+        )
+        return state, relation
+
+    def test_serves_tls_with_issued_certificate(self, ctx, monkeypatch):
+        issued(monkeypatch)
+        state, _ = self._state()
+        out = ctx.run(ctx.on.config_changed(), state)
+        assert out.unit_status == testing.ActiveStatus()
+
+        c = out.get_container("landscape-mcp")
+        svc = c.layers["landscape-mcp"].services["landscape-mcp"]
+        assert (
+            svc.environment["LANDSCAPE_MCP_TLS_CERT"]
+            == "/etc/landscape-mcp/tls/server.crt"
+        )
+        assert (
+            svc.environment["LANDSCAPE_MCP_TLS_KEY"]
+            == "/etc/landscape-mcp/tls/server.key"
+        )
+        assert c.layers["landscape-mcp"].checks["up"].tcp == {"port": 8080}
+        fs = c.get_filesystem(ctx)
+        assert (fs / "etc/landscape-mcp/tls/server.crt").read_text() == "CERT"
+        assert (fs / "etc/landscape-mcp/tls/server.key").read_text() == "KEY"
+
+    def test_waits_for_certificate(self, ctx, monkeypatch):
+        issued(monkeypatch, assigned=False)
+        state, _ = self._state()
+        out = ctx.run(ctx.on.config_changed(), state)
+        assert out.unit_status == testing.WaitingStatus("Waiting for TLS certificate")
+        assert "landscape-mcp" not in out.get_container("landscape-mcp").layers
+
+    def test_no_tls_without_relation(self, ctx):
+        secret, cfg = with_creds()
+        state = testing.State(
+            containers={container()}, leader=True, secrets={secret}, config=cfg
+        )
+        out = ctx.run(ctx.on.config_changed(), state)
+        svc = (
+            out.get_container("landscape-mcp")
+            .layers["landscape-mcp"]
+            .services["landscape-mcp"]
+        )
+        assert "LANDSCAPE_MCP_TLS_CERT" not in svc.environment
+        layer = out.get_container("landscape-mcp").layers["landscape-mcp"]
+        assert layer.checks["up"].http["url"] == "http://localhost:8080/healthz"
+
+    def test_leader_sends_ca(self, ctx, monkeypatch):
+        issued(monkeypatch)
+        ca_relation = testing.Relation("send-ca-cert", remote_app_data={"version": "1"})
+        state, _ = self._state(relations={ca_relation})
+        out = ctx.run(ctx.on.relation_joined(ca_relation), state)
+        data = out.get_relation(ca_relation.id).local_app_data
+        assert "CA" in data["certificates"]
+
+    def test_non_leader_does_not_send_ca(self, ctx, monkeypatch):
+        issued(monkeypatch)
+        ca_relation = testing.Relation("send-ca-cert")
+        state, _ = self._state(relations={ca_relation}, leader=False)
+        out = ctx.run(ctx.on.relation_joined(ca_relation), state)
+        assert out.get_relation(ca_relation.id).local_app_data == {}
+
+    def test_route_uses_https_when_tls_active(self, ctx, monkeypatch):
+        issued(monkeypatch)
+        route = testing.Relation("mcp-haproxy-route")
+        state, _ = self._state(relations={route})
+        out = ctx.run(ctx.on.relation_joined(route), state)
+        data = out.get_relation(route.id).local_app_data
+        assert data["protocol"] == '"https"'
+
+    def test_route_uses_http_without_tls(self, ctx):
+        secret, cfg = with_creds()
+        route = testing.Relation("mcp-haproxy-route")
+        state = testing.State(
+            containers={container()},
+            leader=True,
+            relations={route},
+            secrets={secret},
+            config=cfg,
+        )
+        out = ctx.run(ctx.on.relation_joined(route), state)
+        data = out.get_relation(route.id).local_app_data
+        assert data.get("protocol", '"http"') == '"http"'

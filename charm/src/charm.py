@@ -14,7 +14,17 @@ import logging
 import typing
 
 import ops
+from charms.certificate_transfer_interface.v1.certificate_transfer import (
+    CertificateTransferProvides,
+)
 from charms.haproxy.v1.haproxy_route import HaproxyRouteRequirer
+from charms.tls_certificates_interface.v4.tls_certificates import (
+    CertificateRequestAttributes,
+    Mode,
+    PrivateKey,
+    ProviderCertificate,
+    TLSCertificatesRequiresV4,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +32,9 @@ CONTAINER_NAME = "landscape-mcp"
 MCP_PATH = "/mcp"
 HEALTH_PATH = "/healthz"
 SECRET_FIELDS = ("api-key", "api-secret")
+TLS_DIR = "/etc/landscape-mcp/tls"
+TLS_CERT_PATH = f"{TLS_DIR}/server.crt"
+TLS_KEY_PATH = f"{TLS_DIR}/server.key"
 
 
 class CredentialsError(Exception):
@@ -37,7 +50,19 @@ class LandscapeMcpCharm(ops.CharmBase):
             self, relation_name="mcp-haproxy-route"
         )
 
+        self.certificates = TLSCertificatesRequiresV4(
+            self,
+            relationship_name="certificates",
+            certificate_requests=[self._certificate_request()],
+            mode=Mode.UNIT,
+            refresh_events=[self.on.config_changed],
+        )
+        self.ca_transfer = CertificateTransferProvides(self, "send-ca-cert")
+
         framework.observe(self.on["landscape-mcp"].pebble_ready, self._reconcile)
+        framework.observe(self.certificates.on.certificate_available, self._reconcile)
+        framework.observe(self.on["certificates"].relation_broken, self._reconcile)
+        framework.observe(self.on["send-ca-cert"].relation_joined, self._reconcile)
         framework.observe(self.on.config_changed, self._reconcile)
         framework.observe(self.on.secret_changed, self._reconcile)
         framework.observe(self.on["mcp-haproxy-route"].relation_joined, self._reconcile)
@@ -58,6 +83,61 @@ class LandscapeMcpCharm(ops.CharmBase):
             return None
         address = binding.network.bind_address
         return str(address) if address else None
+
+    def _certificate_request(self) -> CertificateRequestAttributes:
+        """Request a certificate valid for the names and address HAProxy may use."""
+        service_dns = f"{self.app.name}.{self.model.name}.svc.cluster.local"
+        sans_dns = {
+            service_dns,
+            f"{self.unit.name.replace('/', '-')}.{self.app.name}-endpoints."
+            f"{self.model.name}.svc.cluster.local",
+        }
+        hostname = str(self.config.get("external-hostname") or "")
+        if hostname:
+            sans_dns.add(hostname)
+        address = self.unit_address
+        return CertificateRequestAttributes(
+            common_name=service_dns,
+            sans_dns=sans_dns,
+            sans_ip={address} if address else None,
+        )
+
+    def _tls_related(self) -> bool:
+        relation = self.model.get_relation("certificates")
+        return relation is not None and relation.active
+
+    def _assigned_certificate(self) -> tuple[ProviderCertificate, PrivateKey] | None:
+        """Return the issued certificate and its private key, if both exist."""
+        certificate, key = self.certificates.get_assigned_certificate(
+            certificate_request=self._certificate_request()
+        )
+        if certificate is None or key is None:
+            return None
+        return certificate, key
+
+    def _push_tls_files(
+        self,
+        container: ops.Container,
+        certificate: ProviderCertificate,
+        key: PrivateKey,
+    ) -> bool:
+        """Write the certificate and key into the container; True if either changed."""
+        wanted = {
+            TLS_CERT_PATH: str(certificate.certificate),
+            TLS_KEY_PATH: str(key),
+        }
+        changed = False
+        for path, content in wanted.items():
+            if container.exists(path) and container.pull(path).read() == content:
+                continue
+            container.push(
+                path,
+                content,
+                make_dirs=True,
+                permissions=0o600 if path == TLS_KEY_PATH else 0o644,
+            )
+            changed = True
+        return changed
 
     def _credentials(self) -> dict[str, str]:
         """Read the API credentials from the configured Juju secret.
@@ -84,7 +164,23 @@ class LandscapeMcpCharm(ops.CharmBase):
             )
         return content
 
-    def _pebble_layer(self, credentials: dict[str, str]) -> ops.pebble.LayerDict:
+    def _pebble_layer(
+        self, credentials: dict[str, str], tls: bool = False
+    ) -> ops.pebble.LayerDict:
+        environment = {
+            "LANDSCAPE_API_URI": str(self.config["landscape-api-uri"]),
+            "LANDSCAPE_API_KEY": credentials["api-key"],
+            "LANDSCAPE_API_SECRET": credentials["api-secret"],
+        }
+        if tls:
+            environment["LANDSCAPE_MCP_TLS_CERT"] = TLS_CERT_PATH
+            environment["LANDSCAPE_MCP_TLS_KEY"] = TLS_KEY_PATH
+        # Pebble's HTTP check does not trust the private CA, so probe the port.
+        check = (
+            {"tcp": {"port": self.port}}
+            if tls
+            else {"http": {"url": f"http://localhost:{self.port}{HEALTH_PATH}"}}
+        )
         return {
             "summary": "Landscape MCP server",
             "description": "Pebble layer for the Landscape MCP server",
@@ -97,18 +193,14 @@ class LandscapeMcpCharm(ops.CharmBase):
                         f" -transport http -addr :{self.port}"
                     ),
                     "startup": "enabled",
-                    "environment": {
-                        "LANDSCAPE_API_URI": str(self.config["landscape-api-uri"]),
-                        "LANDSCAPE_API_KEY": credentials["api-key"],
-                        "LANDSCAPE_API_SECRET": credentials["api-secret"],
-                    },
+                    "environment": environment,
                 }
             },
             "checks": {
                 "up": {
                     "override": "replace",
                     "level": "alive",
-                    "http": {"url": f"http://localhost:{self.port}{HEALTH_PATH}"},
+                    **check,
                 }
             },
         }
@@ -126,14 +218,40 @@ class LandscapeMcpCharm(ops.CharmBase):
             self.unit.status = ops.BlockedStatus(str(e))
             return
 
+        tls = self._tls_related()
+        assigned = self._assigned_certificate() if tls else None
+        self._send_ca(assigned[0] if assigned else None)
+        if tls and assigned is None:
+            self.unit.status = ops.WaitingStatus("Waiting for TLS certificate")
+            return
+
+        tls_files_changed = False
+        if assigned is not None:
+            tls_files_changed = self._push_tls_files(container, *assigned)
+
         container.add_layer(
-            CONTAINER_NAME, self._pebble_layer(credentials), combine=True
+            CONTAINER_NAME,
+            self._pebble_layer(credentials, tls=assigned is not None),
+            combine=True,
         )
         container.replan()
-        self._provide_haproxy_route()
+        if tls_files_changed:
+            # Replan does not restart a service whose layer is unchanged, but the
+            # server only reads the certificate at startup.
+            container.restart(CONTAINER_NAME)
+        self._provide_haproxy_route(https=assigned is not None)
         self.unit.status = ops.ActiveStatus()
 
-    def _provide_haproxy_route(self) -> None:
+    def _send_ca(self, certificate: ProviderCertificate | None) -> None:
+        """Publish the issuing CA to HAProxy, or withdraw it when TLS is off."""
+        if not self.unit.is_leader():
+            return
+        if certificate is None:
+            self.ca_transfer.remove_all_certificates()
+            return
+        self.ca_transfer.add_certificates({str(certificate.ca)})
+
+    def _provide_haproxy_route(self, https: bool = False) -> None:
         """Publish the MCP route to HAProxy when related."""
         if not self.model.get_relation("mcp-haproxy-route"):
             return
@@ -148,7 +266,7 @@ class LandscapeMcpCharm(ops.CharmBase):
             service=f"landscape-mcp-{self.model.uuid}",
             ports=[self.port],
             paths=[MCP_PATH],
-            protocol="http",
+            protocol="https" if https else "http",
             check_path=HEALTH_PATH,
             check_interval=2,
             check_rise=2,
