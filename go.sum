@@ -13,8 +13,8 @@ github.com/google/jsonschema-go v0.4.3 h1:/DBOLZTfDow7pe2GmaJNhltueGTtDKICi8V8p+
 github.com/google/jsonschema-go v0.4.3/go.mod h1:r5quNTdLOYEz95Ru18zA0ydNbBuYoo9tgaYcxEYhJVE=
 github.com/google/uuid v1.5.0 h1:1p67kYwdtXjb0gL0BPiP1Av9wiZPo5A8z2cWkTZ+eyU=
 github.com/google/uuid v1.5.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/jansdhillon/landscape-go-api-client v0.1.15-0.20260903213804-219a97e66f5b h1:Kz6dJPbyk+vcAfmb44DqRgJqZaDG05S/lEwAiDZRb1A=
-github.com/jansdhillon/landscape-go-api-client v0.1.15-0.20260903213804-219a97e66f5b/go.mod h1:WAnOrjqWEBkkNI2c3UgXY2Cj2ZGT71UJ8rdCKMMiOpc=
+github.com/jansdhillon/landscape-go-api-client v0.1.17 h1:LGqfckRrSpnP6VC4iJhSDqNrZjzEuNftjAYPZ4+wpyI=
+github.com/jansdhillon/landscape-go-api-client v0.1.17/go.mod h1:WAnOrjqWEBkkNI2c3UgXY2Cj2ZGT71UJ8rdCKMMiOpc=
 github.com/juju/gnuflag v0.0.0-20171113085948-2ce1bb71843d/go.mod h1:2PavIy+JPciBPrBUjwbNvtwB6RQlve+hkpll6QSNmOE=
 github.com/modelcontextprotocol/go-sdk v1.6.1 h1:0zOSupjKUxPKSocPT1Wtago+mUHU2/uZ4xSOY0FGReU=
 github.com/modelcontextprotocol/go-sdk v1.6.1/go.mod h1:kzm3kzFL1/+AziGOE0nUs3gvPoNxMCvkxokMkuFapXQ=
