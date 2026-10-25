@@ -3,7 +3,7 @@ module github.com/jansdhillon/landscape-mcp
 go 1.26.2
 
 require (
-	github.com/jansdhillon/landscape-go-api-client v0.1.15-0.20260903213804-219a97e66f5b
+	github.com/jansdhillon/landscape-go-api-client v0.1.17
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 )
 

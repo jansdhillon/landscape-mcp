@@ -38,9 +38,9 @@ type Client struct {
 	secretKey  string
 	httpClient *http.Client
 
-	v2Once   sync.Once
-	v2       *apiclient.ClientWithResponses
-	v2Err    error
+	v2Once sync.Once
+	v2     *apiclient.ClientWithResponses
+	v2Err  error
 }
 
 // LoginResult holds the outcome of an access-key login.
@@ -164,16 +164,14 @@ func (c *Client) v2Client(ctx context.Context) (*apiclient.ClientWithResponses, 
 			AccessKey: c.accessKey,
 			SecretKey: c.secretKey,
 		}
-		client, err := apiclient.NewLandscapeAPIClient(
-			rootURL,
-			provider,
-			apiclient.WithHTTPClient(c.httpClient),
-		)
+		// Detach from the caller's cancellation: v2Once caches the outcome,
+		// so one cancelled request must not leave v2 broken for good.
+		client, err := apiclient.NewLandscapeAPIClient(context.WithoutCancel(ctx), c.httpClient, rootURL, provider)
 		if err != nil {
 			c.v2Err = fmt.Errorf("failed to initialize v2 API client: %w", err)
 			return
 		}
-		c.v2 = client
+		c.v2 = client.ClientWithResponses
 	})
 	return c.v2, c.v2Err
 }
