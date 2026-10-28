@@ -2,7 +2,7 @@
 # Build with: rockcraft pack
 name: landscape-mcp
 base: ubuntu@24.04
-version: "0.1.0"
+version: "0.1.1"
 summary: MCP server for the Landscape API
 description: |
   An MCP server exposing the Landscape API to AI agents. Runs with the
