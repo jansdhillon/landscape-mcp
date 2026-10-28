@@ -19,6 +19,9 @@ import (
 	"github.com/jansdhillon/landscape-mcp/internal/server"
 )
 
+// version is set at build time from rockcraft.yaml (-X main.version=...).
+var version = "dev"
+
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -60,7 +63,7 @@ func main() {
 
 	mcpServer := mcp.NewServer(&mcp.Implementation{
 		Name:    "landscape-api",
-		Version: "v1.0.0",
+		Version: version,
 	}, nil)
 
 	server.New(landscape.NewClientFromEnv()).Register(mcpServer)
