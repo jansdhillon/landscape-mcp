@@ -15,16 +15,17 @@ cd charm && charmcraft pack
 
 ## Continuous publishing
 
-Pushes to `main` publish automatically (amd64 only):
+Pushes to `main` run `.github/workflows/publish.yaml` (amd64 only), which
+releases the charm to `latest/edge` at most once per push:
 
-| Change | Workflow | Result |
-| --- | --- | --- |
-| `cmd/`, `internal/`, `go.mod`, `go.sum`, `rockcraft.yaml` | `publish-image.yaml` | Rock pushed to `ghcr.io/jansdhillon/landscape-mcp` as `latest` and `sha-<commit>`, uploaded as a new `landscape-mcp-image` resource revision, charm released to `latest/edge` with it |
-| `charm/` (excluding tests and docs) | `publish-charm.yaml` | Charm released to `latest/edge` with the latest `landscape-mcp-image` revision |
+| Change | Result |
+| --- | --- |
+| `cmd/`, `internal/`, `go.mod`, `go.sum`, `rockcraft.yaml` | Rock pushed to `ghcr.io/jansdhillon/landscape-mcp` as `latest` and `sha-<commit>`, uploaded as a new `landscape-mcp-image` resource revision, charm released with it |
+| `charm/` only (excluding tests and docs) | Charm released with the latest existing `landscape-mcp-image` revision |
 
-Both workflows run their lint and tests first and can also be started by hand
-from the Actions tab. Releases to Charmhub are serialised, so a push that
-touches both the server and the charm ends with the new charm and new image.
+Lint and tests for the changed parts run first. Runs are serialised. Start it
+by hand from the Actions tab (`gh workflow run publish.yaml`); tick "image" (or
+pass `-f image=true`) to rebuild the rock as well.
 
 The repository needs a `CHARMHUB_TOKEN` secret. Export one scoped to this charm
 (the default lifetime is 30 hours, so set `--ttl`):
