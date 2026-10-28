@@ -4,8 +4,11 @@
 options:
   landscape-api-uri:
     type: string
-    default: "https://landscape.canonical.com/api/"
-    description: Base URL of the Landscape API.
+    description: |
+      Base URL of the Landscape API (required), e.g.
+      https://landscape.example.com/api/. Its host is also the hostname
+      HAProxy routes /mcp on, so use the external Landscape URL. The unit is
+      blocked until this is set.
   landscape-api-credentials:
     type: secret
     description: |

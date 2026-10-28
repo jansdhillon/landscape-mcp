@@ -69,23 +69,22 @@ juju grant-secret landscape-api-creds landscape-mcp
 juju config landscape-mcp landscape-api-credentials=secret:<id>
 ```
 
-Until the secret is configured and granted, the unit is blocked. Rotating the
-secret (`juju update-secret`) restarts the workload with the new credentials.
+Until `landscape-api-uri` is set and the secret is configured and granted, the
+unit is blocked. `landscape-api-uri` has no default. Rotating the secret
+(`juju update-secret`) restarts the workload with the new credentials.
 
 ## Publish behind HAProxy
 
-Relate to `landscape-server` and to the HAProxy charm that fronts it
-(cross-model relations if they live in another model):
+Relate to the HAProxy charm that fronts `landscape-server` (a cross-model
+relation if it lives in another model):
 
 ```sh
-juju relate landscape-mcp:landscape-server landscape-server
 juju relate landscape-mcp:mcp-haproxy-route haproxy
 ```
 
-`landscape-server` publishes the external Landscape hostname (the `root_url`
-host) on the `landscape-server` relation, and the charm uses it as the route
-hostname, since HAProxy ignores routes without one. Until that hostname
-arrives, no route is published and the unit is waiting.
+The route hostname is the host of `landscape-api-uri`, so set that to the
+external Landscape URL (the `root_url` of `landscape-server`). HAProxy ignores
+routes without a hostname; if the URI has none, the unit is blocked.
 
 HAProxy then routes `<landscape-host>/mcp` to this service. Clients connect
 with the streamable HTTP transport, e.g. in VSCode `mcp.json`:
@@ -115,6 +114,29 @@ verify the backend (the HAProxy endpoint is `receive-ca-certs`):
 juju relate landscape-mcp:certificates self-signed-certificates
 juju relate landscape-mcp:send-ca-cert haproxy:receive-ca-certs
 ```
+
+If HAProxy lives in another model, offer every endpoint you need in one
+offer, comma-separated. Running `juju offer` again with a different endpoint
+replaces the offer's endpoint list instead of adding to it, and fails if that
+would drop an endpoint that is in use:
+
+```sh
+# In the HAProxy model
+juju offer haproxy:haproxy-route,receive-ca-certs
+juju offer self-signed-certificates:certificates certs
+
+# In the landscape-mcp model
+juju consume <controller>:<owner>/<model>.haproxy
+juju consume <controller>:<owner>/<model>.certs
+juju relate landscape-mcp:mcp-haproxy-route haproxy:haproxy-route
+juju relate landscape-mcp:send-ca-cert haproxy:receive-ca-certs
+juju relate landscape-mcp:certificates certs
+```
+
+If the consumed SAAS still lacks an endpoint after you change an offer,
+`juju remove-saas` it and `juju consume` it again. Alternatively, publish the
+extra endpoint as a separately named offer
+(e.g. `juju offer haproxy:receive-ca-certs haproxy-ca`) and consume that.
 
 The charm requests a certificate for the unit, the server starts serving
 HTTPS with it (`-tls-cert`/`-tls-key`), the Pebble check becomes a TCP check,

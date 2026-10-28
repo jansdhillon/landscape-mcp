@@ -25,13 +25,6 @@ resources:
     upstream-source: ghcr.io/jansdhillon/landscape-mcp:latest
 
 requires:
-  landscape-server:
-    interface: landscape-mcp
-    limit: 1
-    optional: true
-    description: |
-      landscape-server publishes the external Landscape hostname here; it is
-      used as the haproxy-route hostname and as a certificate SAN.
   mcp-haproxy-route:
     interface: haproxy-route
     limit: 1
