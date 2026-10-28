@@ -13,7 +13,6 @@ CHARM_META = {
     "name": "landscape-mcp",
     "containers": {"landscape-mcp": {}},
     "requires": {
-        "landscape-server": {"interface": "landscape-mcp", "limit": 1},
         "mcp-haproxy-route": {"interface": "haproxy-route", "limit": 1},
         "certificates": {"interface": "tls-certificates", "limit": 1},
     },
@@ -22,10 +21,7 @@ CHARM_META = {
 
 CONFIG = {
     "options": {
-        "landscape-api-uri": {
-            "type": "string",
-            "default": "https://landscape.canonical.com/api/",
-        },
+        "landscape-api-uri": {"type": "string"},
         "landscape-api-credentials": {"type": "secret"},
         "port": {"type": "int", "default": 8080},
     }
@@ -37,22 +33,15 @@ def ctx():
     return testing.Context(LandscapeMcpCharm, meta=CHARM_META, config=CONFIG, unit_id=0)
 
 
-def landscape_server(hostname="landscape.local"):
-    data = {"hostname": hostname} if hostname else {}
-    return testing.Relation(
-        "landscape-server", remote_app_name="landscape-server", remote_app_data=data
-    )
-
-
 def creds_secret(**content):
     return testing.Secret(
         tracked_content=content or {"api-key": "key", "api-secret": "secret"}
     )
 
 
-def with_creds(secret=None):
+def with_creds(secret=None, uri="https://landscape.local/api/"):
     secret = secret or creds_secret()
-    return secret, {"landscape-api-credentials": secret.id}
+    return secret, {"landscape-api-credentials": secret.id, "landscape-api-uri": uri}
 
 
 def container():
@@ -60,8 +49,24 @@ def container():
 
 
 class TestReconcile:
+    def test_blocked_without_api_uri(self, ctx):
+        secret, cfg = with_creds()
+        del cfg["landscape-api-uri"]
+        state = testing.State(
+            containers={container()}, leader=True, secrets={secret}, config=cfg
+        )
+        out = ctx.run(ctx.on.config_changed(), state)
+        assert out.unit_status == testing.BlockedStatus(
+            "Missing landscape-api-uri config"
+        )
+        assert "landscape-mcp" not in out.get_container("landscape-mcp").layers
+
     def test_blocked_without_credentials_config(self, ctx):
-        state = testing.State(containers={container()}, leader=True)
+        state = testing.State(
+            containers={container()},
+            leader=True,
+            config={"landscape-api-uri": "https://landscape.local/api/"},
+        )
         out = ctx.run(ctx.on.config_changed(), state)
         assert out.unit_status == testing.BlockedStatus(
             "Missing landscape-api-credentials config"
@@ -71,7 +76,10 @@ class TestReconcile:
         state = testing.State(
             containers={container()},
             leader=True,
-            config={"landscape-api-credentials": "secret:cvbpf1l6n1jc7c1jkjg0"},
+            config={
+                "landscape-api-uri": "https://landscape.local/api/",
+                "landscape-api-credentials": "secret:cvbpf1l6n1jc7c1jkjg0",
+            },
         )
         out = ctx.run(ctx.on.config_changed(), state)
         assert out.unit_status == testing.BlockedStatus(
@@ -131,10 +139,7 @@ class TestReconcile:
         assert "-addr :8080" in svc.command
         assert svc.environment["LANDSCAPE_API_KEY"] == "key"
         assert svc.environment["LANDSCAPE_API_SECRET"] == "secret"
-        assert (
-            svc.environment["LANDSCAPE_API_URI"]
-            == "https://landscape.canonical.com/api/"
-        )
+        assert svc.environment["LANDSCAPE_API_URI"] == "https://landscape.local/api/"
 
     def test_defers_when_container_not_ready(self, ctx):
         secret, cfg = with_creds()
@@ -168,7 +173,7 @@ class TestHaproxyRoute:
         state = testing.State(
             containers={container()},
             leader=True,
-            relations={relation, landscape_server()},
+            relations={relation},
             secrets={secret},
             config=cfg,
         )
@@ -183,24 +188,23 @@ class TestHaproxyRoute:
         app_data = rel.local_app_data
         assert "services" in app_data or "service" in app_data
 
-    def test_hostname_change_republishes_route(self, ctx):
-        secret, cfg = with_creds()
+    def test_config_change_republishes_route(self, ctx):
+        secret, cfg = with_creds(uri="https://landscape.example.com:8443/api/")
         route = testing.Relation("mcp-haproxy-route")
-        server = landscape_server("landscape.example.com")
         state = testing.State(
             containers={container()},
             leader=True,
-            relations={route, server},
+            relations={route},
             secrets={secret},
             config=cfg,
         )
-        out = ctx.run(ctx.on.relation_changed(server), state)
+        out = ctx.run(ctx.on.config_changed(), state)
         assert out.unit_status == testing.ActiveStatus()
         data = out.get_relation(route.id).local_app_data
         assert json.loads(data["hostname"]) == "landscape.example.com"
 
-    def test_waits_for_hostname_without_landscape_server(self, ctx):
-        secret, cfg = with_creds()
+    def test_blocked_when_api_uri_has_no_hostname(self, ctx):
+        secret, cfg = with_creds(uri="not-a-url")
         route = testing.Relation("mcp-haproxy-route")
         state = testing.State(
             containers={container()},
@@ -210,22 +214,9 @@ class TestHaproxyRoute:
             config=cfg,
         )
         out = ctx.run(ctx.on.relation_joined(route), state)
-        assert isinstance(out.unit_status, testing.WaitingStatus)
-        assert out.get_relation(route.id).local_app_data == {}
-
-    def test_waits_until_landscape_server_publishes_hostname(self, ctx):
-        secret, cfg = with_creds()
-        route = testing.Relation("mcp-haproxy-route")
-        server = landscape_server(hostname=None)
-        state = testing.State(
-            containers={container()},
-            leader=True,
-            relations={route, server},
-            secrets={secret},
-            config=cfg,
+        assert out.unit_status == testing.BlockedStatus(
+            "landscape-api-uri has no hostname for the haproxy route"
         )
-        out = ctx.run(ctx.on.relation_changed(server), state)
-        assert isinstance(out.unit_status, testing.WaitingStatus)
         assert out.get_relation(route.id).local_app_data == {}
 
     def test_no_route_data_without_relation(self, ctx):
@@ -245,7 +236,7 @@ class TestHaproxyRoute:
         state = testing.State(
             containers={container()},
             leader=False,
-            relations={relation, landscape_server()},
+            relations={relation},
             secrets={secret},
             config=cfg,
         )
@@ -343,7 +334,7 @@ class TestTls:
     def test_route_uses_https_when_tls_active(self, ctx, monkeypatch):
         issued(monkeypatch)
         route = testing.Relation("mcp-haproxy-route")
-        state, _ = self._state(relations={route, landscape_server()})
+        state, _ = self._state(relations={route})
         out = ctx.run(ctx.on.relation_joined(route), state)
         data = out.get_relation(route.id).local_app_data
         assert data["protocol"] == '"https"'
@@ -354,7 +345,7 @@ class TestTls:
         state = testing.State(
             containers={container()},
             leader=True,
-            relations={route, landscape_server()},
+            relations={route},
             secrets={secret},
             config=cfg,
         )
