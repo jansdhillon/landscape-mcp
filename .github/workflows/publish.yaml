@@ -1,27 +1,13 @@
 name: Publish
 
-# One pipeline per push to main:
-#   1. If the server changed, test it, pack the rock and push it to GHCR.
-#   2. If the server or the charm changed, test the charm, pack it and release
-#      it to latest/edge once, with the new image as a new resource revision
-#      when step 1 ran, otherwise with the latest existing resource revision.
+# Every push to main tests the server and charm, pushes the rock to GHCR,
+# uploads it as a new Charmhub resource revision, and releases the charm to
+# latest/edge with it.
 on:
   push:
     branches:
       - main
-    paths:
-      - "cmd/**"
-      - "internal/**"
-      - "go.mod"
-      - "go.sum"
-      - "rockcraft.yaml"
-      - "charm/**"
   workflow_dispatch:
-    inputs:
-      image:
-        description: Rebuild and push the image before releasing the charm
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -37,51 +23,8 @@ env:
   CHANNEL: latest/edge
 
 jobs:
-  changes:
-    name: Detect changes
-    runs-on: ubuntu-24.04
-    outputs:
-      image: ${{ steps.diff.outputs.image }}
-      charm: ${{ steps.diff.outputs.charm }}
-    steps:
-      - uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Diff against the previous main
-        id: diff
-        env:
-          EVENT: ${{ github.event_name }}
-          BEFORE: ${{ github.event.before }}
-          DISPATCH_IMAGE: ${{ inputs.image }}
-        run: |
-          if [ "$EVENT" = workflow_dispatch ]; then
-            echo "image=$DISPATCH_IMAGE" >> "$GITHUB_OUTPUT"
-            echo "charm=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            files=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
-          else
-            # Unknown base (new branch or force push): publish everything.
-            files=$(git ls-files)
-          fi
-          image=false
-          charm=false
-          if grep -qE '^(cmd/|internal/|go\.mod$|go\.sum$|rockcraft\.yaml$)' <<<"$files"; then
-            image=true
-          fi
-          if grep -E '^charm/' <<<"$files" | grep -vqE '^charm/tests/|\.md$'; then
-            charm=true
-          fi
-          echo "image=$image" >> "$GITHUB_OUTPUT"
-          echo "charm=$charm" >> "$GITHUB_OUTPUT"
-          echo "image=$image charm=$charm" >> "$GITHUB_STEP_SUMMARY"
-
   test-server:
     name: Test server
-    needs: changes
-    if: needs.changes.outputs.image == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -101,8 +44,6 @@ jobs:
 
   test-charm:
     name: Lint and test charm
-    needs: changes
-    if: needs.changes.outputs.image == 'true' || needs.changes.outputs.charm == 'true'
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -154,11 +95,7 @@ jobs:
 
   charm:
     name: Pack, upload and release charm
-    needs: [changes, test-charm, rock]
-    # Runs when the rock was pushed or skipped, but not when anything failed.
-    if: >-
-      !cancelled() && !failure() &&
-      (needs.changes.outputs.image == 'true' || needs.changes.outputs.charm == 'true')
+    needs: rock
     runs-on: ubuntu-24.04
     env:
       CHARMCRAFT_AUTH: ${{ secrets.CHARMHUB_TOKEN }}
@@ -172,18 +109,13 @@ jobs:
         working-directory: charm
         run: charmcraft pack --platform ubuntu@24.04:amd64 --verbosity brief
 
-      - name: Resolve resource revision
+      - name: Upload image as resource
         id: resource
         run: |
-          if [ -n "$NEW_IMAGE" ]; then
-            revision=$(charmcraft upload-resource "$CHARM" "$RESOURCE" \
-              --image="docker://$NEW_IMAGE" --format json | jq -r .revision)
-          else
-            revision=$(charmcraft resource-revisions "$CHARM" "$RESOURCE" \
-              --format json | jq -r 'map(.revision) | max')
-          fi
+          revision=$(charmcraft upload-resource "$CHARM" "$RESOURCE" \
+            --image="docker://$NEW_IMAGE" --format json | jq -r .revision)
           if [ -z "$revision" ] || [ "$revision" = null ]; then
-            echo "Could not determine a $RESOURCE revision" >&2
+            echo "Could not upload $RESOURCE" >&2
             exit 1
           fi
           echo "revision=$revision" >> "$GITHUB_OUTPUT"
