@@ -90,6 +90,10 @@ server (HTTP transport) and can publish it behind the same HAProxy as the
 connect directly to a local binary or to the charmed deployment. See
 [charm/README.md](charm/README.md).
 
+Pushes to `main` publish the image to `ghcr.io/jansdhillon/landscape-mcp` and
+the charm to Charmhub `latest/edge`; see
+[Continuous publishing](charm/README.md#continuous-publishing).
+
 ## Development
 
 ```sh

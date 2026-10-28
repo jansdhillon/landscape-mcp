@@ -13,6 +13,43 @@ rockcraft pack
 cd charm && charmcraft pack
 ```
 
+## Continuous publishing
+
+Pushes to `main` publish automatically (amd64 only):
+
+| Change | Workflow | Result |
+| --- | --- | --- |
+| `cmd/`, `internal/`, `go.mod`, `go.sum`, `rockcraft.yaml` | `publish-image.yaml` | Rock pushed to `ghcr.io/jansdhillon/landscape-mcp` as `latest` and `sha-<commit>`, uploaded as a new `landscape-mcp-image` resource revision, charm released to `latest/edge` with it |
+| `charm/` (excluding tests and docs) | `publish-charm.yaml` | Charm released to `latest/edge` with the latest `landscape-mcp-image` revision |
+
+Both workflows run their lint and tests first and can also be started by hand
+from the Actions tab. Releases to Charmhub are serialised, so a push that
+touches both the server and the charm ends with the new charm and new image.
+
+The repository needs a `CHARMHUB_TOKEN` secret. Export one scoped to this charm
+(the default lifetime is 30 hours, so set `--ttl`):
+
+```sh
+charmcraft login --export charmhub-token --charm landscape-mcp \
+  --channel latest/edge \
+  --permission package-manage-releases --permission package-manage-revisions \
+  --permission package-view-revisions --ttl 31536000
+gh secret set CHARMHUB_TOKEN < charmhub-token && rm charmhub-token
+```
+
+The image is pushed with the workflow's `GITHUB_TOKEN`. If the GHCR package was
+first created by a manual push, grant this repository write access under the
+package's settings (Manage Actions access).
+
+To publish by hand instead:
+
+```sh
+charmcraft upload-resource landscape-mcp landscape-mcp-image \
+  --image=docker://ghcr.io/jansdhillon/landscape-mcp:latest
+charmcraft upload landscape-mcp_ubuntu@24.04-amd64.charm \
+  --release latest/edge --resource landscape-mcp-image:<resource-revision>
+```
+
 ## Deploy
 
 ```sh
