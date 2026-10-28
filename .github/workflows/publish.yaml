@@ -12,6 +12,12 @@ on:
 permissions:
   contents: read
 
+# The default run shell lacks pipefail, so `charmcraft ... | jq` would hide a
+# charmcraft failure.
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: publish
   cancel-in-progress: false
@@ -120,12 +126,19 @@ jobs:
           fi
           echo "revision=$revision" >> "$GITHUB_OUTPUT"
 
+      # Run from charm/: outside a project directory, charmcraft uploads the
+      # charm and then crashes ("Project not configured yet") before releasing.
       - name: Upload and release charm
+        working-directory: charm
         env:
           RESOURCE_REVISION: ${{ steps.resource.outputs.revision }}
         run: |
-          charm=$(ls charm/"$CHARM"_*.charm)
+          charm=$(ls "$CHARM"_*.charm)
           revision=$(charmcraft upload "$charm" --release "$CHANNEL" \
             --resource "$RESOURCE:$RESOURCE_REVISION" --format json | jq -r .revision)
+          if [ -z "$revision" ] || [ "$revision" = null ]; then
+            echo "charmcraft upload returned no revision" >&2
+            exit 1
+          fi
           echo "Released $CHARM revision $revision with $RESOURCE:$RESOURCE_REVISION to $CHANNEL" \
             | tee -a "$GITHUB_STEP_SUMMARY"
