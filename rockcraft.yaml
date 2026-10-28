@@ -2,7 +2,7 @@
 # Build with: rockcraft pack
 name: landscape-mcp
 base: ubuntu@24.04
-version: "0.1.0"
+version: "0.1.1"
 summary: MCP server for the Landscape API
 description: |
   An MCP server exposing the Landscape API to AI agents. Runs with the
@@ -31,6 +31,13 @@ parts:
     override-build: |
       cd "$CRAFT_PART_SRC"
       mkdir -p "$CRAFT_PART_INSTALL/usr/local/bin"
-      go build -o "$CRAFT_PART_INSTALL/usr/local/bin/landscape-mcp" ./cmd/landscape-mcp
+      # proxy.golang.org occasionally drops downloads mid-stream; retry them.
+      for attempt in 1 2 3 4 5; do
+        go mod download && break
+        [ "$attempt" = 5 ] && exit 1
+        sleep $((attempt * 5))
+      done
+      go build -ldflags "-X main.version=$CRAFT_PROJECT_VERSION" \
+        -o "$CRAFT_PART_INSTALL/usr/local/bin/landscape-mcp" ./cmd/landscape-mcp
     stage-packages:
       - ca-certificates
